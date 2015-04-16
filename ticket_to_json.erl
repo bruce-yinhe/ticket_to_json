@@ -1,3 +1,17 @@
+%% Copyright Bruce Yinhe
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+
 -module(ticket_to_json).
 -export([start/0, result/0]).
 
@@ -27,10 +41,20 @@
 -define(TICKET_PURPOSE, "Purpose").
 -define(TICKET_GIT_BRANCH, "GitBranch").
 -define(TICKET_GIT_RANGE, "GitRange").
-
+-define(DEFAULT_PRIORITY, "4").
 
 start() ->
-    Tokens = 
+    Project =
+	#{<<"name">> => <<"Erlang/OTP">>,
+	  <<"key">> => <<"ERL">>,
+	  <<"components">> => [
+			       <<"erts">>,
+			       <<"kernel">>
+			      ],
+	  <<"issues">> => []
+	 },
+
+    Example_tokens = 
 	[{"Id","OTP-12345"},
 	 {"Label","Textfield"},
 	 {"Status","solved"},
@@ -45,7 +69,7 @@ start() ->
 	 {"Application","erts kernel"},
 	 {"Highlight","no"},
 	 {"Incompatible","yes"},
-	 {"Release note","Textfield"},
+	 {"Release note","Textarea"},
 	 {"AssignedTo","assignee"},
 	 {"FixedInRel","Textfield"},
 	 {"PlannedForRel","Textfield"},
@@ -55,7 +79,17 @@ start() ->
 	 {"Notes","Textfield"}],
     
     EmptyTicket = maps:new(),
-    tokens_to_ticket(Tokens, EmptyTicket).
+    {ok, Issue} = tokens_to_ticket(Example_tokens, EmptyTicket),
+    
+    Project1 = maps:put(
+		 <<"issues">>, 
+		 [Issue | maps:get(<<"issues">>, Project, [])],
+		 Project
+		),
+
+    Projects = 
+	#{<<"projects">> => [Project1]},
+    Projects.
 
 
 tokens_to_ticket([], Ticket) ->
@@ -83,7 +117,21 @@ tokens_to_ticket([{Label, Text} | T], Ticket) ->
                 "closed" ->
                     tokens_to_ticket(T, maps:put(<<"status">>, list_to_binary(Text), Ticket));
                 "cancelled" ->
-                    tokens_to_ticket(T, maps:put(<<"status">>, list_to_binary(Text), Ticket))
+                    tokens_to_ticket(T, maps:put(<<"status">>, list_to_binary(Text), Ticket));
+		BadValue ->
+                    NewValue = "new",
+		    Details = lists:concat(["Bad Status: " ,
+                                            "\"\"",
+                                            BadValue,
+                                            " -> ", NewValue, "\n"]),
+		    New = 
+			#{<<"body">> => list_to_binary(Details),
+			  <<"author">> => <<"bruce">>,
+			  <<"created">> => <<"2012-08-31T17:59:02.161+0100">>
+			 },
+		    NewComments = [New | maps:get(<<"comments">>, Ticket, [])],
+		    Ticket1 = maps:put(<<"comments">>, NewComments, Ticket),
+		    tokens_to_ticket(T, maps:put(<<"status">>, list_to_binary(Text), Ticket1))
             end;
         ?TICKET_TYPE ->
             case string:to_lower(Text) of
@@ -92,13 +140,29 @@ tokens_to_ticket([{Label, Text} | T], Ticket) ->
                 "job" ->
                     tokens_to_ticket(T, maps:put(<<"issueType">>, list_to_binary(Text), Ticket));
                 "request" ->
-                    tokens_to_ticket(T, maps:put(<<"issueType">>, list_to_binary(Text), Ticket))
+                    tokens_to_ticket(T, maps:put(<<"issueType">>, list_to_binary(Text), Ticket));
+		BadValue ->
+                    NewValue = "bug",
+		    Details = lists:concat(["Bad Type: " ,
+                                            "\"\"",
+                                            BadValue,
+					    " -> ", NewValue, "\n"]),
+		    New = 
+			#{<<"body">> => list_to_binary(Details),
+			  <<"author">> => <<"bruce">>,
+			  <<"created">> => <<"2012-08-31T17:59:02.161+0100">>
+			 },
+		    NewComments = [New | maps:get(<<"comments">>, Ticket, [])],
+		    Ticket1 = maps:put(<<"comments">>, NewComments, Ticket),
+		    tokens_to_ticket(T, maps:put(<<"issueType">>, list_to_binary(Text), Ticket1))
+		    
             end;
         ?TICKET_SOURCE ->
 	    CustomFieldValues = maps:get(<<"customFieldValues">>, Ticket, []),
 	    Source = 
 		#{<<"fieldName">> => <<"Source">>,
-		  <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:select">>},
+		  <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:select">>
+		 },
             case string:to_lower(Text) of
                 "internal" ->
 		    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), Source) | CustomFieldValues],
@@ -108,7 +172,22 @@ tokens_to_ticket([{Label, Text} | T], Ticket) ->
 		    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket));
                 "opensource" ->
 		    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), Source) | CustomFieldValues],
-		    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket))
+		    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket));
+		BadValue ->
+                    NewValue = "internal",
+		    Details = lists:concat(["Bad Source: " ,
+                                            "\"\"",
+                                            BadValue,
+					    " -> ", NewValue, "\n"]),
+		    New = 
+			#{<<"body">> => list_to_binary(Details),
+			  <<"author">> => <<"bruce">>,
+			  <<"created">> => <<"2012-08-31T17:59:02.161+0100">>
+			 },
+		    NewComments = [New | maps:get(<<"comments">>, Ticket, [])],
+		    Ticket1 = maps:put(<<"comments">>, NewComments, Ticket),
+		    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), Source) | CustomFieldValues],
+		    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket1))
             end;
         ?TICKET_PRIORITY ->
             case Text of
@@ -119,7 +198,21 @@ tokens_to_ticket([{Label, Text} | T], Ticket) ->
                 "3" ->
                     tokens_to_ticket(T, maps:put(<<"priority">>, list_to_binary(Text), Ticket));
                 "4" ->
-                    tokens_to_ticket(T, maps:put(<<"priority">>, list_to_binary(Text), Ticket))
+                    tokens_to_ticket(T, maps:put(<<"priority">>, list_to_binary(Text), Ticket));
+		BadValue ->
+                    NewValue = ?DEFAULT_PRIORITY,
+		    Details = lists:concat(["Bad Priority: " ,
+                                            "\"\"",
+                                            BadValue,
+					    " -> ", NewValue, "\n"]),
+		    New = 
+			#{<<"body">> => list_to_binary(Details),
+			  <<"author">> => <<"bruce">>,
+			  <<"created">> => <<"2012-08-31T17:59:02.161+0100">>
+			 },
+		    NewComments = [New | maps:get(<<"comments">>, Ticket, [])],
+		    Ticket1 = maps:put(<<"comments">>, NewComments, Ticket),
+		    tokens_to_ticket(T, maps:put(<<"priority">>, list_to_binary(Text), Ticket1))
             end;
         ?TICKET_RELATED_ID ->
 	    CustomFieldValues = maps:get(<<"customFieldValues">>, Ticket, []),
@@ -131,7 +224,7 @@ tokens_to_ticket([{Label, Text} | T], Ticket) ->
         ?TICKET_CREATOR -> 
 	    tokens_to_ticket(T, maps:put(<<"reporter">>, list_to_binary(Text), Ticket));
         ?TICKET_CREATION_DATE ->
-	    tokens_to_ticket(T, maps:put(<<"created">>, list_to_binary(Text), Ticket));
+	    tokens_to_ticket(T, maps:put(<<"created">>, list_to_binary(re:replace(Text, " ", "T", [{return, list}])), Ticket));
         ?TICKET_ORIGINATORS ->
 	    CustomFieldValues = maps:get(<<"customFieldValues">>, Ticket, []),
 	    Originators =
@@ -143,65 +236,141 @@ tokens_to_ticket([{Label, Text} | T], Ticket) ->
 	    CustomFieldValues = maps:get(<<"customFieldValues">>, Ticket, []),
 	    OTP_RELS =
 		#{<<"fieldName">> => <<"OTP release/s">>,
-		  <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:textfield">>},
+		  <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:multiversion">>},
 	    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), OTP_RELS) | CustomFieldValues],
 	    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket));
         ?TICKET_APPLICATION -> 
-	    tokens_to_ticket(T, Ticket); %%TODO
+	    Components = lists:map(fun(A)->list_to_binary(A) end, string:tokens(Text, " ")),
+	    tokens_to_ticket(T, maps:put(<<"components">>, Components, Ticket));
         ?TICKET_HIGHLIGHT ->
-	    tokens_to_ticket(T, Ticket); %%TODO
+	    CustomFieldValues = maps:get(<<"customFieldValues">>, Ticket, []),
+	    Highlight = 
+		#{<<"fieldName">> => <<"Highlight">>,
+		  <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:select">>
+		 },
+	    case string:to_lower(Text) of
+                "yes" ->
+		    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), Highlight) | CustomFieldValues],
+		    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket));
+                "no" ->
+                    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), Highlight) | CustomFieldValues],
+		    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket));
+                BadValue ->
+                    NewValue = "no",
+                    Details = lists:concat(["Changed Highlight to default: " ,
+                                            "\"\"",
+                                            BadValue,
+                                            " -> ", NewValue, "\n"]),
+		    New = 
+			#{<<"body">> => list_to_binary(Details),
+			  <<"author">> => <<"bruce">>,
+			  <<"created">> => <<"2012-08-31T17:59:02.161+0100">>
+			 },
+		    NewComments = [New | maps:get(<<"comments">>, Ticket, [])],
+		    Ticket1 = maps:put(<<"comments">>, NewComments, Ticket),
+		    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), Highlight) | CustomFieldValues],
+		    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket1))
+            end;
         ?TICKET_INCOMPATIBLE ->
-	    tokens_to_ticket(T, Ticket); %%TODO
+	    CustomFieldValues = maps:get(<<"customFieldValues">>, Ticket, []),
+	    Incompatible = 
+		#{<<"fieldName">> => <<"Incompatible">>,
+		  <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:textfield">>
+		 },
+	    case string:to_lower(Text) of
+                "no" ->
+		    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), Incompatible) | CustomFieldValues],
+		    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket));
+                "" ->
+                    NewValue = "no",
+                    Details = lists:concat(["Changed Incompatible to default: " ,
+                                            "\"\"",
+                                            " -> ", NewValue, "\n"]),
+		    New = 
+			#{<<"body">> => list_to_binary(Details),
+			  <<"author">> => <<"bruce">>,
+			  <<"created">> => <<"2012-08-31T17:59:02.161+0100">>
+			 },
+		    NewComments = [New | maps:get(<<"comments">>, Ticket, [])],
+		    Ticket1 = maps:put(<<"comments">>, NewComments, Ticket),
+		    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), Incompatible) | CustomFieldValues],
+		    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket1)); 
+                _ ->
+		    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), Incompatible) | CustomFieldValues],
+		    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket))
+            end;
         ?TICKET_RELEASE_NOTE ->
-	    tokens_to_ticket(T, Ticket); %%TODO
+	    CustomFieldValues = maps:get(<<"customFieldValues">>, Ticket, []),
+	    RELEASE_NOTE =
+		#{<<"fieldName">> => <<"Release Notes">>,
+		  <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:textarea">>},
+	    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), RELEASE_NOTE) | CustomFieldValues],
+	    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket));
         ?TICKET_ASSIGNED_TO ->
-	    tokens_to_ticket(T, Ticket); %%TODO
+	    tokens_to_ticket(T, maps:put(<<"assignee">>, list_to_binary(Text), Ticket));
         ?TICKET_FIXED_IN_REL ->	   
-	    tokens_to_ticket(T, Ticket); %%TODO
+	    CustomFieldValues = maps:get(<<"customFieldValues">>, Ticket, []),
+	    FIXED_IN_REL =
+		#{<<"fieldName">> => <<"FixedInRel">>,
+		  <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:textfield">>},
+	    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), FIXED_IN_REL) | CustomFieldValues],
+	    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket));
         ?TICKET_PLANNED_FOR_REL ->
-       	    tokens_to_ticket(T, Ticket); %%TODO
+	    CustomFieldValues = maps:get(<<"customFieldValues">>, Ticket, []),
+	    PLANNED_FOR_REL =
+		#{<<"fieldName">> => <<"PlannedForRel">>,
+		  <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:textfield">>},
+	    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), PLANNED_FOR_REL) | CustomFieldValues],
+	    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket));
 	?TICKET_TEST_CASE ->
-	    tokens_to_ticket(T, Ticket); %%TODO
-	?TICKET_GIT_BRANCH ->
-	    tokens_to_ticket(T, Ticket); %%TODO
-	?TICKET_GIT_RANGE ->
-       	    tokens_to_ticket(T, Ticket); %%TODO
-	?TICKET_REV ->
-      	    tokens_to_ticket(T, Ticket); %%TODO
-	?TICKET_LAST_UPDATE ->
-      	    tokens_to_ticket(T, Ticket); %%TODO
+	    CustomFieldValues = maps:get(<<"customFieldValues">>, Ticket, []),
+	    TEST_CASE =
+		#{<<"fieldName">> => <<"Test case">>,
+		  <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:textfield">>},
+	    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), TEST_CASE) | CustomFieldValues],
+	    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket));
 	?TICKET_NOTES ->
-       	    tokens_to_ticket(T, Ticket); %%TODO
+	    CustomFieldValues = maps:get(<<"customFieldValues">>, Ticket, []),
+	    NOTES =
+		#{<<"fieldName">> => <<"Notes">>,
+		  <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:textarea">>},
+	    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), NOTES) | CustomFieldValues],
+	    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket));
 	?TICKET_DESCR ->
-       	    tokens_to_ticket(T, Ticket); %%TODO
+	    tokens_to_ticket(T, maps:put(<<"description">>, list_to_binary(Text), Ticket));
 	?TICKET_PURPOSE ->
-	    tokens_to_ticket(T, Ticket) %%TODO
+	    CustomFieldValues = maps:get(<<"customFieldValues">>, Ticket, []),
+	    PURPOSE =
+		#{<<"fieldName">> => <<"Purpose">>,
+		  <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:textarea">>},
+	    NewCustomFieldValues = [maps:put(<<"value">>, list_to_binary(Text), PURPOSE) | CustomFieldValues],
+	    tokens_to_ticket(T, maps:put(<<"customFieldValues">>, NewCustomFieldValues, Ticket))
     end.
-
+    
 result() ->
     #{<<"projects">> => [
 			 
-			 #{<<"name">> => <<"Erlang/OTP">>,
-			   <<"key">> => <<"ERL">>,
-			   <<"components">> => [
-						<<"erts">>,
-						<<"kernel">>
-					       ],
-			   <<"issues">> => [
+    			 #{<<"name">> => <<"Erlang/OTP">>,
+    			   <<"key">> => <<"ERL">>,
+    			   <<"components">> => [
+    						<<"erts">>,
+    						<<"kernel">>
+    					       ],
+    			   <<"issues">> => [
 					    
 					    #{<<"key">> => <<"OTP-12345">>,
 					      <<"summary">> => <<"Textfield">>,
 					      <<"status">> => <<"solved">>,
 					      <<"issueType">> => <<"bug">>,
 					      <<"reporter">> => <<"lukas">>,
-					      <<"created">> => <<"2014-07-11">>,
+					      <<"created">> => <<"2014-07-11T14:59:06">>,
 					      <<"priority">> => <<"1">>,
-					      <<"description">> => <<"">>,
-					      <<"resolution">> => <<"">>,
-					      <<"updated">> => <<"">>,
-					      <<"affectedVersions">> => [],
+					      <<"description">> => <<"Textfield">>,
+					      %% <<"resolution">> => <<"">>,
+					      %% <<"updated">> => <<"">>,
+					      %% <<"affectedVersions">> => [],
 					      <<"assignee">> => <<"assignee">>,
-					      <<"fixedVersions">> => [],
+					      %% <<"fixedVersions">> => [],
 					      <<"components">> => [
 								   <<"erts">>,
 								   <<"kernel">>
@@ -233,7 +402,7 @@ result() ->
 									   },
 									  #{<<"fieldName">> => <<"Release Notes">>,
 									    <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:textarea">>,
-									    <<"value">> => <<"Textfield">>
+									    <<"value">> => <<"Textarea">>
 									   },
 									  #{<<"fieldName">> => <<"Test case">>,
 									    <<"fieldType">> => <<"com.atlassian.jira.plugin.system.customfieldtypes:textfield">>,
@@ -258,6 +427,6 @@ result() ->
 									 ]
 					     }
 					   ]
-			  }
-			]
+     			  }
+     			]
      }.
